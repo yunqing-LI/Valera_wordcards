@@ -60,26 +60,14 @@
   .card.flipped { transform: rotateY(180deg); }
   /* 换卡时禁用过渡，避免新卡背面随旋转动画露出来 */
   .card.no-transition { transition: none; }
-  /* 重开/打乱出场：淡入 + 上浮 */
+  /* 重开/打乱/换卡出场：淡入 + 上浮 */
   .card.appear { animation: cardIn .35s ease; }
   @keyframes cardIn {
     from { opacity: 0; transform: translateY(22px) scale(.97); }
     to   { opacity: 1; transform: none; }
   }
-  /* 箭头切换：旧卡滑出、新卡滑入（平移而非翻转，翻转动画会在中途露出背面内容） */
-  .card.slide-out-left  { animation: cardOutLeft  .22s ease-in forwards; }
-  .card.slide-out-right { animation: cardOutRight .22s ease-in forwards; }
-  .card.slide-in-left   { animation: cardInLeft   .30s ease-out; }
-  .card.slide-in-right  { animation: cardInRight  .30s ease-out; }
-  /* 在背面时按箭头：背面原样滑出，不先翻回正面 */
-  .card.slide-out-left.from-back  { animation-name: cardOutLeftBack; }
-  .card.slide-out-right.from-back { animation-name: cardOutRightBack; }
-  @keyframes cardOutLeft  { to { opacity: 0; transform: translateX(-80px) scale(.95); } }
-  @keyframes cardOutRight { to { opacity: 0; transform: translateX(80px)  scale(.95); } }
-  @keyframes cardInLeft   { from { opacity: 0; transform: translateX(-80px) scale(.95); } }
-  @keyframes cardInRight  { from { opacity: 0; transform: translateX(80px)  scale(.95); } }
-  @keyframes cardOutLeftBack  { from { transform: rotateY(180deg); } to { opacity: 0; transform: rotateY(180deg) translateX(-80px) scale(.95); } }
-  @keyframes cardOutRightBack { from { transform: rotateY(180deg); } to { opacity: 0; transform: rotateY(180deg) translateX(80px)  scale(.95); } }
+  /* 换卡前的隐身态：趁机换内容、等新图解码，再淡入，避免旧图残留 */
+  .card.preparing { opacity: 0; }
   .face {
     position: absolute;
     inset: 0;
@@ -446,8 +434,6 @@
     }
   }
 
-  const SLIDE_OUT_MS = 220; // 与 CSS 滑出动画时长一致
-
   function step(d) {
     if (!order.length || finished || animating) return;
     if (d > 0 && pos === order.length - 1) {
@@ -455,43 +441,36 @@
       return;
     }
     stopWordAudio();
-    const newPos = (pos + d + order.length) % order.length;
-    const outClass = d > 0 ? 'slide-out-left' : 'slide-out-right';
-    const inClass  = d > 0 ? 'slide-in-right' : 'slide-in-left';
-
     animating = true;
-    // 旧卡按方向滑出；若在背面，背面原样滑出（keyframes 保留 rotateY，不会翻回正面）
-    cardEl.classList.remove('appear', 'slide-in-left', 'slide-in-right');
-    cardEl.classList.add(outClass);
-    if (flipped) cardEl.classList.add('from-back');
+    pos = (pos + d + order.length) % order.length;
 
-    setTimeout(() => {
-      pos = newPos;
-      flipped = false;
-      const c = currentCard();
-      setCardContent(c);
-      progress.textContent = (pos + 1) + ' / ' + order.length;
+    // 隐身换卡：藏住卡片、复位正面、换内容，等新图解码好再淡入
+    cardEl.classList.add('no-transition');
+    cardEl.classList.remove('flipped', 'appear');
+    cardEl.classList.add('preparing');
+    void cardEl.offsetWidth; // 强制重排，让无过渡复位立即生效
+    cardEl.classList.remove('no-transition');
+    flipped = false;
 
-      // 等新图解码完成再滑入，避免旧图残留或闪白；最多等 500ms
-      const reveal = () => {
-        cardEl.classList.add('no-transition');
-        cardEl.classList.remove('flipped');
-        void cardEl.offsetWidth; // 强制重排，让无过渡复位立即生效
-        cardEl.classList.remove('no-transition');
-        cardEl.classList.remove(outClass, 'from-back');
-        cardEl.classList.add(inClass);
-        playAppearSound();
-        animating = false;
-      };
-      if (c.image && !imgEl.complete) {
-        Promise.race([
-          imgEl.decode().catch(() => {}),
-          new Promise(r => setTimeout(r, 500)),
-        ]).then(reveal);
-      } else {
-        reveal();
-      }
-    }, SLIDE_OUT_MS);
+    const c = currentCard();
+    setCardContent(c);
+    progress.textContent = (pos + 1) + ' / ' + order.length;
+
+    // 新图解码完成再淡入，保证动画第一帧就是新图；最多等 500ms
+    const reveal = () => {
+      cardEl.classList.remove('preparing');
+      cardEl.classList.add('appear'); // 淡入 + 上浮
+      playAppearSound();
+      animating = false;
+    };
+    if (c.image && !imgEl.complete) {
+      Promise.race([
+        imgEl.decode().catch(() => {}),
+        new Promise(r => setTimeout(r, 500)),
+      ]).then(reveal);
+    } else {
+      reveal();
+    }
   }
 
   function showEnd() {
