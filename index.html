@@ -180,7 +180,7 @@
   }
   .end-screen button { margin-top: 28px; }
 
-  /* ---- 窄屏：大箭头移到卡片下方左右两角（错开排版，不再叠在图上） ---- */
+  /* ---- 窄屏：大箭头移到卡片下方、左右拉伸铺满（不再叠在图上） ---- */
   @media (max-width: 640px) {
     .stage { position: relative; gap: 0; padding-bottom: 104px; }
     .card { width: 88vw; height: min(62vh, 440px); }
@@ -188,13 +188,13 @@
       position: absolute;
       bottom: 24px;
       z-index: 5;
-      width: 96px;
+      width: auto;
       height: 64px;
       border-radius: 999px;
     }
     .nav-btn svg { width: 26px; height: 26px; }
-    #btnPrev { left: 16px; }
-    #btnNext { right: 16px; }
+    #btnPrev { left: 16px; right: calc(50% + 8px); }
+    #btnNext { right: 16px; left: calc(50% + 8px); }
     .front .word-big { font-size: 2.4rem; }
     .back .word { font-size: 2.3rem; }
     .end-screen .bravo { font-size: 2.4rem; }
