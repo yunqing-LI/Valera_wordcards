@@ -60,12 +60,26 @@
   .card.flipped { transform: rotateY(180deg); }
   /* 换卡时禁用过渡，避免新卡背面随旋转动画露出来 */
   .card.no-transition { transition: none; }
-  /* 新卡出场：淡入 + 上浮 */
+  /* 重开/打乱出场：淡入 + 上浮 */
   .card.appear { animation: cardIn .35s ease; }
   @keyframes cardIn {
     from { opacity: 0; transform: translateY(22px) scale(.97); }
     to   { opacity: 1; transform: none; }
   }
+  /* 箭头切换：旧卡滑出、新卡滑入（平移而非翻转，翻转动画会在中途露出背面内容） */
+  .card.slide-out-left  { animation: cardOutLeft  .22s ease-in forwards; }
+  .card.slide-out-right { animation: cardOutRight .22s ease-in forwards; }
+  .card.slide-in-left   { animation: cardInLeft   .30s ease-out; }
+  .card.slide-in-right  { animation: cardInRight  .30s ease-out; }
+  /* 在背面时按箭头：背面原样滑出，不先翻回正面 */
+  .card.slide-out-left.from-back  { animation-name: cardOutLeftBack; }
+  .card.slide-out-right.from-back { animation-name: cardOutRightBack; }
+  @keyframes cardOutLeft  { to { opacity: 0; transform: translateX(-80px) scale(.95); } }
+  @keyframes cardOutRight { to { opacity: 0; transform: translateX(80px)  scale(.95); } }
+  @keyframes cardInLeft   { from { opacity: 0; transform: translateX(-80px) scale(.95); } }
+  @keyframes cardInRight  { from { opacity: 0; transform: translateX(80px)  scale(.95); } }
+  @keyframes cardOutLeftBack  { from { transform: rotateY(180deg); } to { opacity: 0; transform: rotateY(180deg) translateX(-80px) scale(.95); } }
+  @keyframes cardOutRightBack { from { transform: rotateY(180deg); } to { opacity: 0; transform: rotateY(180deg) translateX(80px)  scale(.95); } }
   .face {
     position: absolute;
     inset: 0;
@@ -257,6 +271,7 @@
   let pos = 0;
   let flipped = false;
   let finished = false;
+  let animating = false;
 
   const cardEl   = document.getElementById('card');
   const endEl    = document.getElementById('endScreen');
@@ -374,27 +389,10 @@
 
   function currentCard() { return cards[order[pos]]; }
 
-  function render() {
-    if (!order.length) {
-      cardEl.hidden = true;
-      endEl.hidden = true;
-      emptyEl.hidden = false;
-      progress.textContent = '0 / 0';
-      return;
-    }
-    finished = false;
-    cardEl.hidden = false;
-    endEl.hidden = true;
-    emptyEl.hidden = true;
-    const c = currentCard();
-    flipped = false;
-    // 先禁用过渡再复位到正面，避免新卡背面随旋转动画露出
-    cardEl.classList.add('no-transition');
-    cardEl.classList.remove('flipped', 'appear');
-    void cardEl.offsetWidth; // 强制重排，让无过渡复位立即生效
-    cardEl.classList.remove('no-transition');
-    cardEl.classList.add('appear'); // 新卡淡入上浮出场
+  // 预加载全部配图，切换时新图立刻可用
+  cards.forEach(c => { if (c.image) { const im = new Image(); im.src = c.image; } });
 
+  function setCardContent(c) {
     if (c.image) {
       imgEl.src = c.image;
       imgEl.alt = c.word;
@@ -409,11 +407,36 @@
     backWord.textContent = c.word;
     backPinyin.textContent = c.pinyin || '';
     backMeaning.textContent = c.meaning || '';
+  }
+
+  function render() {
+    if (!order.length) {
+      cardEl.hidden = true;
+      endEl.hidden = true;
+      emptyEl.hidden = false;
+      progress.textContent = '0 / 0';
+      return;
+    }
+    finished = false;
+    cardEl.hidden = false;
+    endEl.hidden = true;
+    emptyEl.hidden = true;
+    flipped = false;
+    // 先禁用过渡再复位到正面，避免新卡背面随旋转动画露出
+    cardEl.classList.add('no-transition');
+    cardEl.classList.remove('flipped');
+    void cardEl.offsetWidth; // 强制重排，让无过渡复位立即生效
+    cardEl.classList.remove('no-transition');
+    cardEl.classList.remove('appear');
+    void cardEl.offsetWidth; // 重启动画
+    cardEl.classList.add('appear'); // 淡入上浮出场
+
+    setCardContent(currentCard());
     progress.textContent = (pos + 1) + ' / ' + order.length;
   }
 
   function flip() {
-    if (!order.length || finished) return;
+    if (!order.length || finished || animating) return;
     flipped = !flipped;
     cardEl.classList.toggle('flipped', flipped);
     if (flipped) {
@@ -424,16 +447,52 @@
     }
   }
 
+  const SLIDE_OUT_MS = 220; // 与 CSS 滑出动画时长一致
+
   function step(d) {
-    if (!order.length || finished) return;
+    if (!order.length || finished || animating) return;
     if (d > 0 && pos === order.length - 1) {
       showEnd();
       return;
     }
     stopWordAudio();
-    pos = (pos + d + order.length) % order.length;
-    render();
-    playAppearSound();
+    const newPos = (pos + d + order.length) % order.length;
+    const outClass = d > 0 ? 'slide-out-left' : 'slide-out-right';
+    const inClass  = d > 0 ? 'slide-in-right' : 'slide-in-left';
+
+    animating = true;
+    // 旧卡按方向滑出；若在背面，背面原样滑出（keyframes 保留 rotateY，不会翻回正面）
+    cardEl.classList.remove('appear', 'slide-in-left', 'slide-in-right');
+    cardEl.classList.add(outClass);
+    if (flipped) cardEl.classList.add('from-back');
+
+    setTimeout(() => {
+      pos = newPos;
+      flipped = false;
+      const c = currentCard();
+      setCardContent(c);
+      progress.textContent = (pos + 1) + ' / ' + order.length;
+
+      // 等新图解码完成再滑入，避免旧图残留或闪白；最多等 500ms
+      const reveal = () => {
+        cardEl.classList.add('no-transition');
+        cardEl.classList.remove('flipped');
+        void cardEl.offsetWidth; // 强制重排，让无过渡复位立即生效
+        cardEl.classList.remove('no-transition');
+        cardEl.classList.remove(outClass, 'from-back');
+        cardEl.classList.add(inClass);
+        playAppearSound();
+        animating = false;
+      };
+      if (c.image && !imgEl.complete) {
+        Promise.race([
+          imgEl.decode().catch(() => {}),
+          new Promise(r => setTimeout(r, 500)),
+        ]).then(reveal);
+      } else {
+        reveal();
+      }
+    }, SLIDE_OUT_MS);
   }
 
   function showEnd() {
@@ -446,6 +505,7 @@
   }
 
   function shuffle(withSound) {
+    if (animating) return;
     for (let i = order.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [order[i], order[j]] = [order[j], order[i]];
@@ -457,6 +517,7 @@
 
   // 重新开始：保持当前顺序，只回到第一张
   function restart() {
+    if (animating) return;
     pos = 0;
     render();
     playAppearSound();
