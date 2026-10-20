@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Карточки · 词卡</title>
+<style>
+  :root {
+    --bg: #f4f1ea;
+    --card-front: #ffffff;
+    --card-back: #1f6f6b;
+    --accent: #c2543a;
+    --ink: #2b2b2b;
+    --muted: #8a8578;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    /* 西文/西里尔字母用前面的字体，汉字自动回退到中文黑体 */
+    font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial,
+                 "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  header {
+    width: 100%;
+    padding: 20px 24px 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    max-width: 860px;
+  }
+  h1 { font-size: 1.4rem; letter-spacing: 1px; }
+  .progress { font-size: .9rem; color: var(--muted); }
+
+  /* ---- 卡片区：箭头在卡片左右 ---- */
+  .stage {
+    flex: 1;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    padding: 16px;
+    perspective: 1200px;
+  }
+  .card {
+    width: min(520px, 76vw);
+    height: min(620px, 74vh);
+    position: relative;
+    transform-style: preserve-3d;
+    transition: transform .55s cubic-bezier(.35,.15,.2,1);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .card.flipped { transform: rotateY(180deg); }
+  /* 换卡时禁用过渡，避免新卡背面随旋转动画露出来 */
+  .card.no-transition { transition: none; }
+  /* 新卡出场：淡入 + 上浮 */
+  .card.appear { animation: cardIn .35s ease; }
+  @keyframes cardIn {
+    from { opacity: 0; transform: translateY(22px) scale(.97); }
+    to   { opacity: 1; transform: none; }
+  }
+  .face {
+    position: absolute;
+    inset: 0;
+    border-radius: 20px;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    box-shadow: 0 10px 30px rgba(0,0,0,.12);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    text-align: center;
+    overflow: hidden;
+  }
+  .front { background: var(--card-front); }
+  .back {
+    background: var(--card-back);
+    color: #fff;
+    transform: rotateY(180deg);
+  }
+
+  .front img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 12px;
+  }
+  .front .word-big {
+    font-size: 3rem;
+    font-weight: 600;
+  }
+  .hint {
+    position: absolute;
+    bottom: 14px;
+    font-size: .8rem;
+    color: var(--muted);
+  }
+  .back .word { font-size: 3rem; font-weight: 600; }
+  .back .pinyin { font-size: 1.35rem; margin-top: 12px; opacity: .9; font-style: italic; }
+  .back .meaning { font-size: 1.35rem; margin-top: 26px; line-height: 1.6; }
+  .back .hint { color: rgba(255,255,255,.6); }
+
+  /* ---- 左右切换箭头 ---- */
+  .nav-btn {
+    font-family: inherit;
+    border: none;
+    border-radius: 50%;
+    width: 56px;
+    height: 56px;
+    cursor: pointer;
+    background: #fff;
+    color: var(--ink);
+    box-shadow: 0 2px 10px rgba(0,0,0,.12);
+    transition: transform .12s, background .2s;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .nav-btn svg { width: 22px; height: 22px; }
+  .nav-btn:hover { transform: translateY(-1px); background: #fdf9f3; }
+  .nav-btn:active { transform: translateY(0); }
+
+  /* ---- 底部按钮 ---- */
+  .controls {
+    display: flex;
+    gap: 10px;
+    padding: 12px 16px 28px;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  button.action {
+    font-family: inherit;
+    font-size: 1rem;
+    border: none;
+    border-radius: 999px;
+    padding: 10px 22px;
+    cursor: pointer;
+    background: #fff;
+    color: var(--ink);
+    box-shadow: 0 2px 8px rgba(0,0,0,.08);
+    transition: transform .12s, background .2s;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  button.action svg { width: 17px; height: 17px; flex-shrink: 0; }
+  button.action:hover { transform: translateY(-1px); }
+  button.action:active { transform: translateY(0); }
+  button.primary { background: var(--accent); color: #fff; }
+  .empty-note { color: var(--muted); font-size: .95rem; padding: 40px; }
+
+  /* ---- 一轮结束 ---- */
+  .end-screen {
+    text-align: center;
+    padding: 40px;
+  }
+  .end-screen .bravo {
+    font-size: 3.2rem;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .end-screen .sub {
+    margin-top: 14px;
+    color: var(--muted);
+    font-size: 1.05rem;
+  }
+  .end-screen button { margin-top: 28px; }
+
+  /* ---- 窄屏：箭头叠在卡片两侧 ---- */
+  @media (max-width: 640px) {
+    .stage { position: relative; gap: 0; }
+    .card { width: 88vw; height: 66vh; }
+    .nav-btn {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 5;
+      width: 46px;
+      height: 46px;
+      background: rgba(255,255,255,.85);
+    }
+    .nav-btn svg { width: 18px; height: 18px; }
+    #btnPrev { left: 4px; }
+    #btnNext { right: 4px; }
+    .front .word-big { font-size: 2.4rem; }
+    .back .word { font-size: 2.3rem; }
+    .end-screen .bravo { font-size: 2.4rem; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Карточки</h1>
+  <div class="progress" id="progress">0 / 0</div>
+</header>
+
+<div class="stage">
+  <button class="nav-btn" id="btnPrev" aria-label="Назад">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+  </button>
+
+  <div class="card" id="card" hidden>
+    <div class="face front">
+      <img id="cardImage" alt="" hidden>
+      <div class="word-big" id="cardWord" hidden></div>
+      <div class="hint">Нажмите на карточку, чтобы перевернуть</div>
+    </div>
+    <div class="face back">
+      <div class="word" id="backWord"></div>
+      <div class="pinyin" id="backPinyin"></div>
+      <div class="meaning" id="backMeaning"></div>
+      <div class="hint">Нажмите, чтобы вернуться</div>
+    </div>
+  </div>
+
+  <div class="end-screen" id="endScreen" hidden>
+    <div class="bravo">Молодец! 🎉</div>
+    <div class="sub">Все карточки пройдены</div>
+    <button class="action primary" id="btnRestart">Начать заново ↻</button>
+  </div>
+
+  <div class="empty-note" id="emptyNote" hidden>Нет карточек — добавьте слова в cards.js.</div>
+
+  <button class="nav-btn" id="btnNext" aria-label="Вперёд">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+  </button>
+</div>
+
+<div class="controls">
+  <button class="action primary" id="btnFlip">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+    Перевернуть
+  </button>
+  <button class="action" id="btnShuffle">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+    Перемешать
+  </button>
+</div>
+
+<script src="cards.js"></script>
+<script>
+  const cards = (window.CARDS || []).filter(c => c && c.word);
+  let order = cards.map((_, i) => i);
+  let pos = 0;
+  let flipped = false;
+  let finished = false;
+
+  const cardEl   = document.getElementById('card');
+  const endEl    = document.getElementById('endScreen');
+  const emptyEl  = document.getElementById('emptyNote');
+  const progress = document.getElementById('progress');
+  const imgEl    = document.getElementById('cardImage');
+  const wordEl   = document.getElementById('cardWord');
+  const backWord = document.getElementById('backWord');
+  const backPinyin   = document.getElementById('backPinyin');
+  const backMeaning  = document.getElementById('backMeaning');
+
+  // ---- 音效：WebAudio 合成，无需外部音频文件 ----
+  let audioCtx = null;
+  function getCtx() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  }
+
+  // 翻转回正面："唰"的扫频声
+  function playFlipSound() {
+    try {
+      const ctx = getCtx();
+      const t = ctx.currentTime;
+      const dur = 0.28;
+      const bufferSize = Math.floor(ctx.sampleRate * dur);
+      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+
+      const noise = ctx.createBufferSource();
+      noise.buffer = buffer;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.Q.value = 1.2;
+      filter.frequency.setValueAtTime(400, t);
+      filter.frequency.exponentialRampToValueAtTime(3200, t + dur);
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.35, t + 0.05);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+
+      noise.connect(filter).connect(gain).connect(ctx.destination);
+      noise.start(t);
+      noise.stop(t + dur);
+    } catch (e) { /* 不支持音频时静默跳过 */ }
+  }
+
+  // 打乱：几声短促的"洗牌"抖动声
+  function playShuffleSound() {
+    try {
+      const ctx = getCtx();
+      const t = ctx.currentTime;
+      [0, 0.09, 0.18].forEach((offset, i) => {
+        const dur = 0.06;
+        const bufferSize = Math.floor(ctx.sampleRate * dur);
+        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let j = 0; j < bufferSize; j++) data[j] = Math.random() * 2 - 1;
+
+        const noise = ctx.createBufferSource();
+        noise.buffer = buffer;
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.Q.value = 1.5;
+        filter.frequency.value = 1400 + i * 500;
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.0001, t + offset);
+        gain.gain.exponentialRampToValueAtTime(0.3, t + offset + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + offset + dur);
+
+        noise.connect(filter).connect(gain).connect(ctx.destination);
+        noise.start(t + offset);
+        noise.stop(t + offset + dur);
+      });
+    } catch (e) { /* 不支持音频时静默跳过 */ }
+  }
+
+  // 新卡出现：轻快的"叮"声
+  function playAppearSound() {
+    try {
+      const ctx = getCtx();
+      const t = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(660, t);
+      osc.frequency.exponentialRampToValueAtTime(990, t + 0.09);
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.22, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.25);
+    } catch (e) { /* 不支持音频时静默跳过 */ }
+  }
+
+  // ---- 词语录音：word/audio/<词>.m4a ----
+  let currentAudio = null;
+  function stopWordAudio() {
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio.currentTime = 0;
+      currentAudio = null;
+    }
+  }
+  function playWordAudio(c) {
+    try {
+      stopWordAudio();
+      currentAudio = new Audio('word/audio/' + encodeURIComponent(c.word) + '.m4a');
+      currentAudio.play().catch(() => {});
+    } catch (e) { /* 播放失败时静默跳过 */ }
+  }
+
+  function currentCard() { return cards[order[pos]]; }
+
+  function render() {
+    if (!order.length) {
+      cardEl.hidden = true;
+      endEl.hidden = true;
+      emptyEl.hidden = false;
+      progress.textContent = '0 / 0';
+      return;
+    }
+    finished = false;
+    cardEl.hidden = false;
+    endEl.hidden = true;
+    emptyEl.hidden = true;
+    const c = currentCard();
+    flipped = false;
+    // 先禁用过渡再复位到正面，避免新卡背面随旋转动画露出
+    cardEl.classList.add('no-transition');
+    cardEl.classList.remove('flipped', 'appear');
+    void cardEl.offsetWidth; // 强制重排，让无过渡复位立即生效
+    cardEl.classList.remove('no-transition');
+    cardEl.classList.add('appear'); // 新卡淡入上浮出场
+
+    if (c.image) {
+      imgEl.src = c.image;
+      imgEl.alt = c.word;
+      imgEl.hidden = false;
+      wordEl.hidden = true;
+    } else {
+      imgEl.hidden = true;
+      imgEl.removeAttribute('src');
+      wordEl.textContent = c.word;
+      wordEl.hidden = false;
+    }
+    backWord.textContent = c.word;
+    backPinyin.textContent = c.pinyin || '';
+    backMeaning.textContent = c.meaning || '';
+    progress.textContent = (pos + 1) + ' / ' + order.length;
+  }
+
+  function flip() {
+    if (!order.length || finished) return;
+    flipped = !flipped;
+    cardEl.classList.toggle('flipped', flipped);
+    if (flipped) {
+      playWordAudio(currentCard()); // 翻到背面立刻播放词语录音
+    } else {
+      stopWordAudio();
+      playFlipSound();
+    }
+  }
+
+  function step(d) {
+    if (!order.length || finished) return;
+    if (d > 0 && pos === order.length - 1) {
+      showEnd();
+      return;
+    }
+    stopWordAudio();
+    pos = (pos + d + order.length) % order.length;
+    render();
+    playAppearSound();
+  }
+
+  function showEnd() {
+    stopWordAudio();
+    finished = true;
+    cardEl.hidden = true;
+    endEl.hidden = false;
+    progress.textContent = order.length + ' / ' + order.length;
+    playAppearSound();
+  }
+
+  function shuffle(withSound) {
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    pos = 0;
+    render();
+    if (withSound) playShuffleSound();
+  }
+
+  // 重新开始：保持当前顺序，只回到第一张
+  function restart() {
+    pos = 0;
+    render();
+    playAppearSound();
+  }
+
+  cardEl.addEventListener('click', flip);
+  document.getElementById('btnFlip').addEventListener('click', flip);
+  document.getElementById('btnPrev').addEventListener('click', () => step(-1));
+  document.getElementById('btnNext').addEventListener('click', () => step(1));
+  document.getElementById('btnShuffle').addEventListener('click', () => { stopWordAudio(); shuffle(true); });
+  document.getElementById('btnRestart').addEventListener('click', restart);
+
+  document.addEventListener('keydown', e => {
+    if (finished) {
+      if (e.key === ' ' || e.key === 'Enter' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        restart();
+      }
+      return;
+    }
+    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); flip(); }
+    else if (e.key === 'ArrowLeft')  step(-1);
+    else if (e.key === 'ArrowRight') step(1);
+  });
+
+  shuffle(false); // 默认随机顺序（首次加载无音效）
+</script>
+</body>
+</html>
